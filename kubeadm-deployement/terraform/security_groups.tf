@@ -50,6 +50,13 @@ resource "aws_security_group" "k8s_master_sg" {
     protocol    = "tcp"
     self        = true
   }
+  # Allow traffic from worker nodes to master node
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    security_groups = [aws_security_group.k8s_worker_sg.id]
+  }
 
   # Allow all outbound traffic
   egress {
@@ -70,31 +77,14 @@ resource "aws_security_group" "k8s_worker_sg" {
   name_prefix = "${var.cluster_name}-worker-"
   vpc_id      = aws_vpc.k8s_vpc.id
 
-  # SSH access
+  # --- EXISTING RULES (Keep these) ---
   ingress {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
     cidr_blocks = var.allowed_cidr_blocks
   }
-
-  # Kubelet API
-  ingress {
-    from_port   = 10250
-    to_port     = 10250
-    protocol    = "tcp"
-    self        = true
-  }
-
-  # NodePort services
-  ingress {
-    from_port   = 30000
-    to_port     = 32767
-    protocol    = "tcp"
-    cidr_blocks = var.allowed_cidr_blocks
-  }
-
-  # Allow traffic from master node
+  
   ingress {
     from_port       = 0
     to_port         = 0
@@ -102,7 +92,27 @@ resource "aws_security_group" "k8s_worker_sg" {
     security_groups = [aws_security_group.k8s_master_sg.id]
   }
 
-  # Allow all outbound traffic
+  # --- FIX 1: Allow Pod Tunneling (Worker <-> Worker) ---
+  # REQUIRED for Calico/Flannel to work.
+  # Allows workers to talk to other workers on ALL ports/protocols.
+  ingress {
+    from_port = 0
+    to_port   = 0
+    protocol  = "-1"
+    self      = true 
+  }
+
+  # --- FIX 2: Allow Load Balancer Traffic ---
+  # The Load Balancer needs to hit the NodePorts.
+  # We allow traffic specifically from the LB Security Group.
+  ingress {
+    from_port       = 30000
+    to_port         = 32767
+    protocol        = "tcp"
+    security_groups = [aws_security_group.k8s_lb_sg.id]
+  }
+
+  # Allow all outbound
   egress {
     from_port   = 0
     to_port     = 0
@@ -112,7 +122,6 @@ resource "aws_security_group" "k8s_worker_sg" {
 
   tags = {
     Name = "${var.cluster_name}-worker-sg"
-    Environment = var.environment
   }
 }
 
