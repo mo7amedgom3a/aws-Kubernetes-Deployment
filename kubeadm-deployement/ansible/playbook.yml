@@ -1,0 +1,301 @@
+---
+- name: Kubernetes Cluster Setup with kubeadm
+  hosts: k8s_cluster
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    kube_version: "1.28"
+    pod_network_cidr: "10.244.0.0/16"
+    service_cidr: "10.96.0.0/12"
+    
+  tasks:
+    - name: Update system packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+      when: ansible_os_family == "Debian"
+
+    - name: Disable swap
+      shell: |
+        swapoff -a
+        sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+      ignore_errors: yes
+
+    - name: Load required kernel modules
+      blockinfile:
+        path: /etc/modules-load.d/k8s.conf
+        create: yes
+        block: |
+          overlay
+          br_netfilter
+
+    - name: Load kernel modules
+      modprobe:
+        name: "{{ item }}"
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Configure sysctl parameters
+      blockinfile:
+        path: /etc/sysctl.d/k8s.conf
+        create: yes
+        block: |
+          net.bridge.bridge-nf-call-iptables  = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+          net.ipv4.ip_forward                 = 1
+
+    - name: Apply sysctl parameters
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { key: "net.bridge.bridge-nf-call-iptables", value: "1" }
+        - { key: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
+        - { key: "net.ipv4.ip_forward", value: "1" }
+
+    - name: Install required packages
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - apt-transport-https
+        state: present
+
+    - name: Create Docker GPG key directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Add Docker GPG key
+      shell: |
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      args:
+        creates: /etc/apt/keyrings/docker.gpg
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch={{ ansible_architecture }} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+        filename: docker
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+    - name: Install containerd directly from Ubuntu repositories
+      apt:
+        name: containerd
+        state: present
+      register: containerd_install
+      retries: 3
+      delay: 5
+      until: containerd_install is success
+
+    - name: Create containerd config directory
+      file:
+        path: /etc/containerd
+        state: directory
+        mode: '0755'
+
+    - name: Configure containerd
+      shell: |
+        containerd config default | tee /etc/containerd/config.toml
+        sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+      args:
+        creates: /etc/containerd/config.toml
+
+    - name: Start and enable containerd
+      systemd:
+        name: containerd
+        state: started
+        enabled: yes
+
+    - name: Add Kubernetes GPG key
+      shell: |
+        curl -fsSL https://pkgs.k8s.io/core:/stable:/v{{ kube_version }}/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      args:
+        creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+    - name: Add Kubernetes repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ kube_version }}/deb/ /"
+        state: present
+        filename: kubernetes
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install Kubernetes components
+      apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+      register: k8s_install
+      retries: 3
+      delay: 5
+      until: k8s_install is success
+
+    - name: Hold Kubernetes packages
+      dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+    - name: Configure kubelet
+      blockinfile:
+        path: /var/lib/kubelet/config.yaml
+        create: yes
+        block: |
+          apiVersion: kubelet.config.k8s.io/v1beta1
+          kind: KubeletConfiguration
+          cgroupDriver: systemd
+
+    - name: Enable kubelet
+      systemd:
+        name: kubelet
+        enabled: yes
+        daemon_reload: yes
+
+    - name: Wait for nodes to be ready
+      wait_for:
+        timeout: 30
+      when: inventory_hostname in groups['workers']
+
+- name: Initialize Kubernetes Master Node
+  hosts: master
+  become: yes
+  gather_facts: no
+  
+  vars:
+    pod_network_cidr: "10.244.0.0/16"
+    service_cidr: "10.96.0.0/12"
+    
+  tasks:
+    - name: Get master node private IP
+      shell: hostname -I | awk '{print $1}'
+      register: master_private_ip
+      changed_when: false
+
+    - name: Initialize Kubernetes cluster
+      shell: |
+        kubeadm init \
+          --pod-network-cidr={{ pod_network_cidr }} \
+          --service-cidr={{ service_cidr }} \
+          --apiserver-advertise-address={{ master_private_ip.stdout }} \
+          --control-plane-endpoint={{ master_private_ip.stdout }} \
+          --upload-certs
+      register: kubeadm_init
+      args:
+        creates: /etc/kubernetes/admin.conf
+
+    - name: Create .kube directory
+      file:
+        path: /home/ubuntu/.kube
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Copy kubeconfig to user directory
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/ubuntu/.kube/config
+        owner: ubuntu
+        group: ubuntu
+        mode: '0600'
+        remote_src: yes
+
+    - name: Extract join command for workers
+      shell: |
+        kubeadm token create --print-join-command
+      register: join_command
+      changed_when: false
+
+    - name: Display join command
+      debug:
+        msg: "Worker join command: {{ join_command.stdout }}"
+
+    - name: Install Flannel CNI
+      shell: |
+        kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+      become_user: ubuntu
+      args:
+        creates: /etc/kubernetes/manifests/kube-flannel-ds.yaml
+
+    - name: Wait for master node to be ready
+      shell: kubectl get nodes
+      become_user: ubuntu
+      register: master_status
+      until: master_status.rc == 0
+      retries: 30
+      delay: 10
+
+- name: Get join command from master
+  hosts: master
+  become: yes
+  gather_facts: no
+  
+  tasks:
+    - name: Get join command
+      shell: kubeadm token create --print-join-command
+      register: join_command
+      changed_when: false
+      
+    - name: Set join command fact
+      set_fact:
+        kube_join_cmd: "{{ join_command.stdout }}"
+
+- name: Join Worker Nodes to Cluster
+  hosts: workers
+  become: yes
+  gather_facts: no
+  
+  tasks:
+    - name: Join worker node to cluster
+      shell: "{{ hostvars[groups['master'][0]].kube_join_cmd }}"
+      register: join_result
+      retries: 3
+      delay: 10
+
+    - name: Display join result
+      debug:
+        msg: "{{ join_result.stdout }}"
+
+- name: Verify Cluster Status
+  hosts: master
+  become: yes
+  gather_facts: no
+  
+  tasks:
+    - name: Wait for all nodes to be ready
+      shell: kubectl get nodes
+      become_user: ubuntu
+      register: cluster_status
+      until: "'Ready' in cluster_status.stdout and 'NotReady' not in cluster_status.stdout"
+      retries: 20
+      delay: 15
+
+    - name: Display cluster status
+      debug:
+        msg: "{{ cluster_status.stdout_lines }}"
+
+    - name: Display cluster info
+      shell: kubectl cluster-info
+      become_user: ubuntu
+      register: cluster_info
+
+    - name: Show cluster information
+      debug:
+        msg: "{{ cluster_info.stdout_lines }}"
