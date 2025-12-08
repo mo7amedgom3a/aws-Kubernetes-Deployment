@@ -21,41 +21,34 @@ resource "aws_security_group" "k8s_master_sg" {
 
   # etcd server client API
   ingress {
-    from_port   = 2379
-    to_port     = 2380
-    protocol    = "tcp"
-    self        = true
+    from_port = 2379
+    to_port   = 2380
+    protocol  = "tcp"
+    self      = true
   }
 
   # Kubelet API
   ingress {
-    from_port   = 10250
-    to_port     = 10250
-    protocol    = "tcp"
-    self        = true
+    from_port = 10250
+    to_port   = 10250
+    protocol  = "tcp"
+    self      = true
   }
 
   # kube-scheduler
   ingress {
-    from_port   = 10259
-    to_port     = 10259
-    protocol    = "tcp"
-    self        = true
+    from_port = 10259
+    to_port   = 10259
+    protocol  = "tcp"
+    self      = true
   }
 
   # kube-controller-manager
   ingress {
-    from_port   = 10257
-    to_port     = 10257
-    protocol    = "tcp"
-    self        = true
-  }
-  # Allow traffic from worker nodes to master node
-  ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    security_groups = [aws_security_group.k8s_worker_sg.id]
+    from_port = 10257
+    to_port   = 10257
+    protocol  = "tcp"
+    self      = true
   }
 
   # Allow all outbound traffic
@@ -67,7 +60,7 @@ resource "aws_security_group" "k8s_master_sg" {
   }
 
   tags = {
-    Name = "${var.cluster_name}-master-sg"
+    Name        = "${var.cluster_name}-master-sg"
     Environment = var.environment
   }
 }
@@ -77,19 +70,11 @@ resource "aws_security_group" "k8s_worker_sg" {
   name_prefix = "${var.cluster_name}-worker-"
   vpc_id      = aws_vpc.k8s_vpc.id
 
-  # --- EXISTING RULES (Keep these) ---
   ingress {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
     cidr_blocks = var.allowed_cidr_blocks
-  }
-  
-  ingress {
-    from_port       = 0
-    to_port         = 0
-    protocol        = "-1"
-    security_groups = [aws_security_group.k8s_master_sg.id]
   }
 
   # --- FIX 1: Allow Pod Tunneling (Worker <-> Worker) ---
@@ -99,7 +84,7 @@ resource "aws_security_group" "k8s_worker_sg" {
     from_port = 0
     to_port   = 0
     protocol  = "-1"
-    self      = true 
+    self      = true
   }
 
   # --- FIX 2: Allow Load Balancer Traffic ---
@@ -155,7 +140,28 @@ resource "aws_security_group" "k8s_lb_sg" {
   }
 
   tags = {
-    Name = "${var.cluster_name}-lb-sg"
+    Name        = "${var.cluster_name}-lb-sg"
     Environment = var.environment
   }
+}
+
+# Separate rules to avoid circular dependency
+# Allow traffic from worker nodes to master node
+resource "aws_security_group_rule" "master_from_worker" {
+  type                     = "ingress"
+  from_port                = 0
+  to_port                  = 0
+  protocol                 = "-1"
+  security_group_id        = aws_security_group.k8s_master_sg.id
+  source_security_group_id = aws_security_group.k8s_worker_sg.id
+}
+
+# Allow traffic from master node to worker nodes
+resource "aws_security_group_rule" "worker_from_master" {
+  type                     = "ingress"
+  from_port                = 0
+  to_port                  = 0
+  protocol                 = "-1"
+  security_group_id        = aws_security_group.k8s_worker_sg.id
+  source_security_group_id = aws_security_group.k8s_master_sg.id
 }

@@ -8,11 +8,6 @@ output "public_subnet_ids" {
   value       = aws_subnet.public[*].id
 }
 
-output "private_subnet_ids" {
-  description = "IDs of the private subnets"
-  value       = aws_subnet.private[*].id
-}
-
 output "control_plane_public_ip" {
   description = "Public IP address of the control plane node"
   value       = aws_instance.control_plane.public_ip
