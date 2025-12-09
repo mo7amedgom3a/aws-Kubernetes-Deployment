@@ -34,6 +34,20 @@ resource "aws_security_group" "k8s_master_sg" {
     protocol  = "tcp"
     self      = true
   }
+  # kubelet health check
+  ingress {
+    from_port = 10251
+    to_port   = 10251
+    protocol  = "tcp"
+    self      = true
+  }
+  # kubelet metrics
+  ingress {
+    from_port = 10252
+    to_port   = 10252
+    protocol  = "tcp"
+    self      = true
+  }
 
   # kube-scheduler
   ingress {

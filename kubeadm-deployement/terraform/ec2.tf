@@ -25,13 +25,13 @@ resource "aws_instance" "control_plane" {
   vpc_security_group_ids = [aws_security_group.k8s_master_sg.id]
   key_name               = var.key_name
 
+  user_data = file("./common.sh")
   tags = {
     Name                                        = "${var.cluster_name}-control-plane"
     "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   }
 
-  # User data script for Kubernetes node setup
-  user_data = "export NODE_TYPE=\"master\"\n${file("k8s-node-setup.sh")}"
+  
 }
 
 # --- WORKER NODES ---
@@ -45,11 +45,11 @@ resource "aws_instance" "worker" {
   vpc_security_group_ids = [aws_security_group.k8s_worker_sg.id]
   key_name               = var.key_name
 
+
+  user_data = file("./common.sh")
   tags = {
     Name                                        = "${var.cluster_name}-worker-${count.index}"
     "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   }
 
-  # Same script as Control Plane
-  user_data = "export NODE_TYPE=\"worker\"\n${file("k8s-node-setup.sh")}"
 }
