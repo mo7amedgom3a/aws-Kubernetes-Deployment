@@ -90,7 +90,6 @@ resource "aws_security_group" "k8s_worker_sg" {
     protocol    = "tcp"
     cidr_blocks = var.allowed_cidr_blocks
   }
-
   # --- FIX 1: Allow Pod Tunneling (Worker <-> Worker) ---
   # REQUIRED for Calico/Flannel to work.
   # Allows workers to talk to other workers on ALL ports/protocols.
@@ -110,7 +109,17 @@ resource "aws_security_group" "k8s_worker_sg" {
     protocol        = "tcp"
     security_groups = [aws_security_group.k8s_lb_sg.id]
   }
-
+  ingress {
+    from_port = 8472
+    to_port = 8472
+    protocol = "udp"
+    self = true 
+  }
+  ingress {
+    from_port = 10254
+    to_port = 10254
+    protocol = "tcp"
+  }
   # Allow all outbound
   egress {
     from_port   = 0
