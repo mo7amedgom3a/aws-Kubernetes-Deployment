@@ -26,12 +26,14 @@ resource "aws_instance" "control_plane" {
   key_name               = var.key_name
 
   user_data = file("./common.sh")
+
   tags = {
     Name                                        = "${var.cluster_name}-control-plane"
     "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   }
 
-  
+  # Ensure NLB is created before the control plane
+  depends_on = [aws_lb.k8s_nlb]
 }
 
 # --- WORKER NODES ---

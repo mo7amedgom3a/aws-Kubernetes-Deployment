@@ -9,7 +9,7 @@ set -e
 echo ""
 echo "=== MASTER NODE CONFIGURATION ==="
 echo "[1/2] Configuring Kubernetes master node..."
-
+CONTROL_PLANE_ENDPOINT="load balancer dns here"
 CLUSTER_NAME="kubeadm-cluster"
 # Check if cluster is already initialized
 if [ -f /etc/kubernetes/admin.conf ]; then
@@ -18,17 +18,30 @@ if [ -f /etc/kubernetes/admin.conf ]; then
 else
         echo "Initializing Kubernetes cluster..."
 
+        # Get the control plane endpoint (NLB DNS) from environment variable
+        # If not set, fall back to the private IP of this instance
+        if [ -z "$CONTROL_PLANE_ENDPOINT" ]; then
+                CONTROL_PLANE_ENDPOINT=$(hostname -I | awk '{print $1}')
+                echo "⚠ CONTROL_PLANE_ENDPOINT not set, using local IP: $CONTROL_PLANE_ENDPOINT"
+        else
+                echo "✓ Using Load Balancer endpoint: $CONTROL_PLANE_ENDPOINT"
+        fi
+
         # A. Create Kubeadm Config for AWS (External Provider)
         cat <<EOF >/tmp/kubeadm-config.yaml
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
 kubernetesVersion: v1.29.0
 clusterName: ${CLUSTER_NAME}
+controlPlaneEndpoint: "${CONTROL_PLANE_ENDPOINT}:6443"
 networking:
   podSubnet: 192.168.0.0/16
 apiServer:
   extraArgs:
     cloud-provider: "external"
+  certSANs:
+    - ${CONTROL_PLANE_ENDPOINT}
+    - $(hostname -I | awk '{print $1}')
 controllerManager:
   extraArgs:
     cloud-provider: "external"

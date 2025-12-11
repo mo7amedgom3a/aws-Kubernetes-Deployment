@@ -61,3 +61,34 @@ output "cluster_info" {
     cluster_name     = var.cluster_name
   }
 }
+
+# Network Load Balancer Outputs
+output "nlb_dns_name" {
+  description = "DNS name of the Network Load Balancer"
+  value       = aws_lb.k8s_nlb.dns_name
+}
+
+output "nlb_arn" {
+  description = "ARN of the Network Load Balancer"
+  value       = aws_lb.k8s_nlb.arn
+}
+
+output "api_target_group_arn" {
+  description = "ARN of the API server target group"
+  value       = aws_lb_target_group.k8s_api.arn
+}
+
+output "http_target_group_arn" {
+  description = "ARN of the HTTP application target group"
+  value       = aws_lb_target_group.k8s_apps_http.arn
+}
+
+output "https_target_group_arn" {
+  description = "ARN of the HTTPS application target group"
+  value       = aws_lb_target_group.k8s_apps_https.arn
+}
+
+output "kubernetes_api_endpoint" {
+  description = "Kubernetes API endpoint via Load Balancer"
+  value       = "https://${aws_lb.k8s_nlb.dns_name}:6443"
+}

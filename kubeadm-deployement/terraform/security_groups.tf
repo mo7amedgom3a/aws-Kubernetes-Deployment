@@ -111,14 +111,14 @@ resource "aws_security_group" "k8s_worker_sg" {
   }
   ingress {
     from_port = 8472
-    to_port = 8472
-    protocol = "udp"
-    self = true 
+    to_port   = 8472
+    protocol  = "udp"
+    self      = true
   }
   ingress {
     from_port = 10254
-    to_port = 10254
-    protocol = "tcp"
+    to_port   = 10254
+    protocol  = "tcp"
   }
   # Allow all outbound
   egress {
@@ -187,4 +187,14 @@ resource "aws_security_group_rule" "worker_from_master" {
   protocol                 = "-1"
   security_group_id        = aws_security_group.k8s_worker_sg.id
   source_security_group_id = aws_security_group.k8s_master_sg.id
+}
+
+# Allow traffic from NLB to master node API server
+resource "aws_security_group_rule" "master_from_nlb" {
+  type                     = "ingress"
+  from_port                = 6443
+  to_port                  = 6443
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.k8s_master_sg.id
+  source_security_group_id = aws_security_group.k8s_lb_sg.id
 }
