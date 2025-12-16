@@ -3,6 +3,7 @@
 *.pem
 # terraform state
 *.tfstate
+*.tfstate.lock.hcl
 *.tfstate.*
 .terraform/
 

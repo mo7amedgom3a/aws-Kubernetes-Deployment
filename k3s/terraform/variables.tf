@@ -25,7 +25,7 @@ variable "instance_type" {
 variable "ssh_key_name" {
   description = "Name of the SSH key pair to use for EC2 instances"
   type        = string
-  default     = "my-aws-keys.pem"
+  default     = "my-aws-keys"
 }
 
 variable "allowed_ssh_cidr" {
@@ -42,4 +42,10 @@ variable "common_tags" {
     Environment = "Development"
     ManagedBy   = "Terraform"
   }
+}
+
+variable "join_token" {
+  description = "Token to join the cluster"
+  type        = string
+  default = "token"
 }
